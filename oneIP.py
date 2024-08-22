@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -37,73 +36,45 @@ owner_credentials = {"username": "Shalini", "password": "Sha@Constramart"}
 if 'attendance_df' not in st.session_state:
     st.session_state.attendance_df = pd.DataFrame(columns=['Employee', 'Date', 'In-Punch', 'Out-Punch', 'Duration', 'Status', 'Daily Salary'])
 
-# # Function to calculate duration
-# def calculate_duration(in_punch, out_punch):
-#     if pd.notnull(in_punch) and pd.notnull(out_punch):
-#         return (out_punch - in_punch).total_seconds() / 3600  # Duration in hours
-#     return None
-
+# Function to calculate duration
 def calculate_duration(in_punch, out_punch):
     if pd.notnull(in_punch) and pd.notnull(out_punch):
         return (out_punch - in_punch).total_seconds() / 3600  # Duration in hours
     return None
 
+# Function to determine employee status
+def determine_status(duration):
+    if duration is None:
+        return "Absent"
+    elif duration >= 8:
+        return "Present"
+    else:
+        return "Half-Day"
 
-# 
+# Function to calculate daily salary based on status
+def calculate_daily_salary(status, name):
+    if status == "Present":
+        return daily_salaries.get(name, 0)
+    elif status == "Half-Day":
+        return daily_salaries.get(name, 0) / 2
+    return 0
 
-
+# Function to update employee status and salary in the DataFrame
 def update_employee_status_and_salary():
-    st.session_state.attendance_df['Duration'] = pd.to_numeric(st.session_state.attendance_df['Duration'], errors='coerce')  # Convert Duration to numeric
+    df = st.session_state.attendance_df
+    df['Duration'] = df.apply(lambda row: calculate_duration(row['In-Punch'], row['Out-Punch']), axis=1)
+    df['Status'] = df['Duration'].apply(determine_status)
+    df['Daily Salary'] = df.apply(lambda row: calculate_daily_salary(row['Status'], row['Employee']), axis=1)
+    st.session_state.attendance_df = df
 
-    for i, row in st.session_state.attendance_df.iterrows():
-        if pd.notnull(row['Duration']):
-            employee = row['Employee']
-            # Ensure employee exists in the salary dictionary
-            if employee in daily_salaries:
-                if row['Duration'] >= 5:
-                    status = "Full Day"
-                    salary = daily_salaries[employee]
-                else:
-                    status = "Half Day"
-                    salary = daily_salaries[employee] / 2
-                st.session_state.attendance_df.at[i, 'Status'] = status
-                st.session_state.attendance_df.at[i, 'Daily Salary'] = salary
-            else:
-                st.session_state.attendance_df.at[i, 'Status'] = "Unknown"
-                st.session_state.attendance_df.at[i, 'Daily Salary'] = 0
-
-
-# Save DataFrame to a CSV file
-def save_data():
-    update_employee_status_and_salary()
-    st.session_state.attendance_df.to_csv('attendance_records.csv', index=False)
-
-# Load DataFrame from a CSV file
-def load_data():
-    try:
-        st.session_state.attendance_df = pd.read_csv('attendance_records.csv')
-        # Convert 'In-Punch' and 'Out-Punch' columns to datetime
-        st.session_state.attendance_df['In-Punch'] = pd.to_datetime(st.session_state.attendance_df['In-Punch'], errors='coerce')
-        st.session_state.attendance_df['Out-Punch'] = pd.to_datetime(st.session_state.attendance_df['Out-Punch'], errors='coerce')
-    except FileNotFoundError:
-        st.session_state.attendance_df = pd.DataFrame(columns=['Employee', 'Date', 'In-Punch', 'Out-Punch', 'Duration', 'Status', 'Daily Salary'])
-
-# Load data at the start of the app
-load_data()
-
-# Convert datetime columns to string without 'T'
-def format_datetime_columns(df):
-    df['In-Punch'] = df['In-Punch'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    df['Out-Punch'] = df['Out-Punch'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    return df
-
-# Login page
+# Function to display the login page
 def login_page():
     st.title("Login")
-    user_type = st.radio("Login as", ["Employee", "Owner"])
+    
+    user_type = st.radio("Login as:", ("Owner", "Employee"))
     username = st.text_input("Username")
-    password = st.text_input("Password", type='password')
-
+    password = st.text_input("Password", type="password")
+    
     if st.button("Login"):
         if user_type == "Owner" and username == owner_credentials["username"] and password == owner_credentials["password"]:
             st.session_state.user_type = "Owner"
@@ -115,73 +86,36 @@ def login_page():
         else:
             st.error("Invalid credentials")
 
-# Owner page
+# Function to display the owner page
 def owner_page():
     st.title("Owner Dashboard")
     st.write("Attendance Records:")
+    
     if st.session_state.attendance_df.empty:
         st.write("No attendance records found.")
     else:
-        # Update status and salary before displaying
         update_employee_status_and_salary()
-        df_to_display = format_datetime_columns(st.session_state.attendance_df)
-        st.dataframe(df_to_display[['Employee', 'Date', 'In-Punch', 'Out-Punch', 'Duration', 'Status', 'Daily Salary']])
+        st.write(st.session_state.attendance_df)
 
-# Employee page
+# Function to display the employee page
 def employee_page():
-    st.title(f"{st.session_state.current_employee}'s Attendance")
-    today = datetime.now().strftime("%Y-%m-%d")
-    employee_records = st.session_state.attendance_df[
-        (st.session_state.attendance_df['Date'] == today) & 
-        (st.session_state.attendance_df['Employee'] == st.session_state.current_employee)
-    ]
+    st.title(f"Welcome, {st.session_state.current_employee}")
     
-    # Display existing attendance records
-    if not employee_records.empty:
-        st.write("Your Punch In/Punch Out Records for Today:")
-        df_to_display = format_datetime_columns(employee_records)
-        st.dataframe(df_to_display[['Date', 'In-Punch', 'Out-Punch', 'Duration']])
-
-    # Punch In
-    if st.button("Punch In"):
-        if employee_records.empty or pd.notnull(employee_records.iloc[-1]['Out-Punch']):
-            in_punch = datetime.now()
-            st.session_state.attendance_df = st.session_state.attendance_df.append({
-                'Employee': st.session_state.current_employee,
-                'Date': today,
-                'In-Punch': in_punch,
-                'Out-Punch': None,
-                'Duration': None,
-                'Status': None,
-                'Daily Salary': 0
-            }, ignore_index=True)
-            st.success("Punched In")
-            save_data()  # Save data after punching in
-        else:
-            st.warning("You have already punched in today and have not punched out yet")
+    date = st.date_input("Select Date", datetime.now())
+    in_punch = st.time_input("In-Punch Time")
+    out_punch = st.time_input("Out-Punch Time")
     
-    # Punch Out
-    if not employee_records.empty and pd.notnull(employee_records.iloc[-1]['In-Punch']) and pd.isnull(employee_records.iloc[-1]['Out-Punch']):
-        if st.button("Punch Out"):
-            out_punch = datetime.now()
-            st.session_state.attendance_df.loc[
-                (st.session_state.attendance_df['Date'] == today) & 
-                (st.session_state.attendance_df['Employee'] == st.session_state.current_employee) & 
-                st.session_state.attendance_df['Out-Punch'].isnull(), 'Out-Punch'
-            ] = out_punch
-            # Ensure conversion of 'In-Punch' and 'Out-Punch' to datetime before calculating duration
-            st.session_state.attendance_df['In-Punch'] = pd.to_datetime(st.session_state.attendance_df['In-Punch'], errors='coerce')
-            st.session_state.attendance_df['Out-Punch'] = pd.to_datetime(st.session_state.attendance_df['Out-Punch'], errors='coerce')
-            st.session_state.attendance_df.loc[
-                (st.session_state.attendance_df['Date'] == today) & 
-                (st.session_state.attendance_df['Employee'] == st.session_state.current_employee), 'Duration'
-            ] = st.session_state.attendance_df.apply(lambda row: calculate_duration(row['In-Punch'], row['Out-Punch']), axis=1)
-            st.success("Punched Out")
-            save_data()  # Save data after punching out
-    elif not employee_records.empty and pd.notnull(employee_records.iloc[-1]['In-Punch']) and pd.notnull(employee_records.iloc[-1]['Out-Punch']):
-        st.write("You have already punched out today")
+    if st.button("Submit Attendance"):
+        new_data = {
+            "Employee": st.session_state.current_employee,
+            "Date": date,
+            "In-Punch": datetime.combine(date, in_punch),
+            "Out-Punch": datetime.combine(date, out_punch),
+        }
+        st.session_state.attendance_df = st.session_state.attendance_df.append(new_data, ignore_index=True)
+        st.success("Attendance submitted successfully!")
 
-# Main application
+# Main function to manage pages
 def main():
     if 'user_type' not in st.session_state:
         login_page()
